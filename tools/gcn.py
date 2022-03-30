@@ -59,6 +59,60 @@ def networkx_to_jraph(nx_graph):
     return graph
 
 
+def graph_to_jraph(nx_graph):
+    mapping = {}
+    i = 0
+    for n in nx_graph.nodes():
+        mapping[n] = i
+        i += 1
+
+    # arbitrary int ids to ordered 0,1,2,... ids
+    nx_graph_c = nx.relabel_nodes(nx_graph, mapping, copy=True)
+    nl_nodes = [nx_graph_c.nodes[n]['text_cat'] for n in nx_graph_c.nodes()]
+
+    # generate sentence embeddings from the text_cat feature and use it as node features
+    node_features = jnp.array(WE_MODEL.encode(nl_nodes))
+
+    # define senders and receivers based on the (conflicting) edges of the nx graph
+    ef = []
+    snd = []
+    rec = []
+    attacks = [(u, v) for u, v, e in nx_graph_c.edges(data=True) if e['color'] == 'r']
+    for att in attacks:
+        snd.append(att[0])
+        rec.append(att[1])
+        ef.append([1.])
+    supports = [(u, v) for u, v, e in nx_graph_c.edges(data=True) if e['color'] == 'g']
+    for supp in supports:
+        snd.append(supp[0])
+        rec.append(supp[1])
+        ef.append([-1.])
+    rephrase = [(u, v) for u, v, e in nx_graph_c.edges(data=True) if e['color'] == 'y']
+    for rp in rephrase:
+        snd.append(rp[0])
+        rec.append(rp[1])
+        ef.append([0.])
+    senders = jnp.array(snd)
+    receivers = jnp.array(rec)
+    edge_features = jnp.array(ef)
+
+    n_node = jnp.array([len(nx_graph_c.nodes())])
+    n_edge = jnp.array([len(attacks)])
+
+    global_context = None
+
+    graph = jraph.GraphsTuple(
+        nodes=node_features,
+        edges=edge_features,
+        senders=senders,
+        receivers=receivers,
+        n_node=n_node,
+        n_edge=n_edge,
+        globals=global_context
+    )
+    return graph
+
+
 def convert_networkx_dataset_to_jraph(nx_dataset):
     """Converts a networkx dataset to a jraph graph dataset."""
     jraph_dataset = []
@@ -69,6 +123,21 @@ def convert_networkx_dataset_to_jraph(nx_dataset):
         sample = {}
         sample['input_graph'] = networkx_to_jraph(nx_sample[0])
         sample['target'] = jnp.array([nx_sample[1]])
+        jraph_dataset.append(sample)
+        n += 1
+    return jraph_dataset
+
+
+def convert_graph_dataset_to_jraph(g_dataset):
+    """Converts a networkx dataset to a jraph graph dataset."""
+    jraph_dataset = []
+    n = 0
+    print("Converting", len(g_dataset), "samples to Jraph.")
+    for g_sample in g_dataset:
+        # print("Sample ", n, nx_sample)
+        sample = {}
+        sample['input_graph'] = graph_to_jraph(g_sample[0])
+        sample['target'] = jnp.array([g_sample[1]])
         jraph_dataset.append(sample)
         n += 1
     return jraph_dataset
@@ -146,6 +215,15 @@ def net_fn(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
       update_edge_fn=edge_update_fn,
       update_global_fn=update_global_fn)
     return net(embedder(graph))
+
+
+def predict(params: jnp.ndarray, graph: jraph.GraphsTuple, label: jnp.ndarray, net: jraph.GraphsTuple) -> jnp.ndarray:
+    """Computes graph prediction."""
+    pred_graph = net.apply(params, graph)
+    preds = jax.nn.softmax(pred_graph.globals)
+    targets = jax.nn.one_hot(label, 2)
+
+    return preds
 
 
 def compute_loss(params: jnp.ndarray, graph: jraph.GraphsTuple, label: jnp.ndarray, net: jraph.GraphsTuple) -> jnp.ndarray:
@@ -238,3 +316,16 @@ def evaluate(dataset, params):
     accuracy = accumulated_accuracy / idx
     print(f'Eval loss: {loss}, accuracy {accuracy}')
     return loss, accuracy
+
+
+def preds(dataset, params):
+    # Transform impure `net_fn` to pure functions with hk.transform.
+    net = hk.without_apply_rng(hk.transform(net_fn))
+    pred_list = []
+    for idx in range(len(dataset)):
+        graph = dataset[idx]['input_graph']
+        label = dataset[idx]['target']
+        pred = predict(params, graph, label, net)
+        pred_list.append([pred, label])
+
+    return pred_list

@@ -131,9 +131,9 @@ def graph_to_af(graph):
                 text_en += und_g.nodes[node]['text_en']+' '
                 node_set.append(node)
             if team == 'FAVOUR':
-                color = 'g'
+                color = 'lightskyblue'
             else:
-                color = 'r'
+                color = 'mediumorchid'
 
         if len(node_set) > 0:
             AF.add_node(id, team=team, text_cat=text_cat, text_es=text_es, text_en=text_en, node_set=node_set, color=color, node_size=len(node_set))
