@@ -1,7 +1,7 @@
 # ArgumentEvaluation
 Automatic evaluation of argumentative debates using argumentation semantics and natural language graph networks.
 
-Code used for the ["Automatic Debate Evaluation with Argumentation Semantics and Natural Language Argument Graph Networks"](https://arxiv.org/abs/2203.14647) paper.
+Code used for the ["Automatic Debate Evaluation with Argumentation Semantics and Natural Language Argument Graph Networks"](https://arxiv.org/abs/2203.14647) preprint.
 
 Cite with BibTex:
 
